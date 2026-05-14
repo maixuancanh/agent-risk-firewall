@@ -22,7 +22,7 @@ components:
 build:
   lang: python
   source_repo: replace-with-pr-author/agent-risk-firewall
-  source_commit: "2c52102b1a093e23662d3d4539b8dc91d34b3525"
+  source_commit: "55c08e26a218328e450c9bf6b997c73d74353048"
   binary_name: agent-risk-firewall
   main: "src/agent_risk_firewall/cli.py"
 
