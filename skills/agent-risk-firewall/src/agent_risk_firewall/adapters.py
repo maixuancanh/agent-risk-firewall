@@ -39,21 +39,22 @@ class OnchainOSAdapter:
         return evidence
 
     def token_scan(self, chain: str, address: str) -> Dict[str, Any]:
-        return self._run_json(["security", "token-scan", "--chain", chain, "--address", address])
+        chain_id = _chain_id(chain)
+        return self._run_json(["security", "token-scan", "--tokens", f"{chain_id}:{address}"])
 
     def token_report(self, chain: str, address: str) -> Dict[str, Any]:
-        return self._run_json(["token", "report", "--chain", chain, "--address", address])
+        return self._run_json(["token", "liquidity", "--chain", chain, "--address", address])
 
     def tx_scan(self, context: Dict[str, Any]) -> Dict[str, Any]:
         tx = context.get("tx") or {}
         args = ["security", "tx-scan", "--chain", context["chain"]]
-        self._append_tx_args(args, tx)
+        self._append_tx_scan_args(args, context["chain"], tx)
         return self._run_json(args)
 
     def simulate(self, context: Dict[str, Any]) -> Dict[str, Any]:
         tx = context.get("tx") or {}
         args = ["gateway", "simulate", "--chain", context["chain"]]
-        self._append_tx_args(args, tx)
+        self._append_simulate_args(args, tx)
         return self._run_json(args)
 
     def _run_json(self, args: List[str]) -> Dict[str, Any]:
@@ -111,19 +112,47 @@ class OnchainOSAdapter:
         return bool(tx.get("to") or tx.get("data") or tx.get("signaturePayload") or tx.get("signedTx"))
 
     @staticmethod
-    def _append_tx_args(args: List[str], tx: Dict[str, Any]) -> None:
+    def _append_tx_scan_args(args: List[str], chain: str, tx: Dict[str, Any]) -> None:
+        if chain == "solana":
+            mapping = (
+                ("from", "--from"),
+                ("encoding", "--encoding"),
+                ("signaturePayload", "--transactions"),
+            )
+        else:
+            mapping = (
+                ("from", "--from"),
+                ("to", "--to"),
+                ("data", "--data"),
+                ("value", "--value"),
+                ("gas", "--gas"),
+                ("gasPrice", "--gas-price"),
+            )
+        for source, flag in mapping:
+            value = tx.get(source)
+            if value is not None and value != "":
+                args.extend([flag, str(value)])
+
+    @staticmethod
+    def _append_simulate_args(args: List[str], tx: Dict[str, Any]) -> None:
         mapping = (
             ("from", "--from"),
             ("to", "--to"),
             ("data", "--data"),
-            ("value", "--value"),
-            ("signedTx", "--signed-tx"),
-            ("signaturePayload", "--tx"),
+            ("value", "--amount"),
         )
         for source, flag in mapping:
             value = tx.get(source)
             if value is not None and value != "":
                 args.extend([flag, str(value)])
+
+
+def _chain_id(chain: str) -> str:
+    if chain == "xlayer":
+        return "196"
+    if chain == "solana":
+        return "501"
+    return chain
 
 
 def _parse_output(output: str) -> Any:
