@@ -22,7 +22,7 @@ components:
 build:
   lang: python
   source_repo: maixuancanh/agent-risk-firewall
-  source_commit: "pending"
+  source_commit: "b6da8692a7ce7835a6383a626a42705a17f89622"
   binary_name: agent-workflow-composer
   main: "src/agent_workflow_composer/cli.py"
 
