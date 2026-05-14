@@ -29,7 +29,10 @@ The MVP focuses on X Layer and Solana swaps and approvals.
 | OKX security data | Calls OKX OnchainOS token scan and transaction scan when available. |
 | Simulation | Calls OKX OnchainOS gateway simulation when transaction context is available. |
 | Liquidity | Reads token liquidity data when available. |
-| Policy | Applies a deterministic `balanced` policy for slippage, price impact, token risk, transaction risk, simulation failure, and trade caps. |
+| Policy | Applies deterministic `balanced`, `strict`, `competition`, or `degen-small-size` profiles. |
+| External evidence | Accepts optional GoPlus, Birdeye, and RootData evidence supplied by other plugins. |
+| Approval risk | Checks unlimited approvals, EOA spenders, unknown spenders, allowlists, and denylists. |
+| Audit trail | Returns `decisionId`, `policyVersion`, and `evidenceHash` for reviewability. |
 | Output | Returns machine-readable JSON for agents. |
 
 ## Safety Boundaries
@@ -70,9 +73,24 @@ Example output:
     }
   ],
   "evidence": {},
+  "audit": {
+    "decisionId": "arf_0123456789abcdef",
+    "policyProfile": "balanced",
+    "policyVersion": "1.1.0",
+    "evidenceHash": "64-character-sha256"
+  },
   "safeNextStep": "Show the warning reasons and ask the user for explicit confirmation before signing."
 }
 ```
+
+## Policy Profiles
+
+| Profile | Use case | Key behavior |
+| --- | --- | --- |
+| `balanced` | Default retail agentic trading guardrail | Blocks critical risk and warns on elevated risk. |
+| `strict` | High-safety mode | Blocks unavailable scans, token `HIGH`, EOA spenders, and tighter slippage/price-impact limits. |
+| `competition` | OKX Agentic Trading style workflows | Tighter caps and blocks stablecoin/native-only pairs. |
+| `degen-small-size` | Small meme-token experiments | Higher slippage tolerance with a hard 25 USD trade cap. |
 
 ## Balanced Policy
 
@@ -143,6 +161,9 @@ Show the active policy:
 
 ```powershell
 agent-risk-firewall policy --profile balanced
+agent-risk-firewall policy --profile strict
+agent-risk-firewall policy --profile competition
+agent-risk-firewall policy --profile degen-small-size
 ```
 
 Run local self-test:
@@ -184,6 +205,16 @@ agent-risk-firewall self-test
     "data": "0x",
     "value": "0"
   },
+  "approval": {
+    "spender": "0x0000000000000000000000000000000000000004",
+    "spenderType": "contract",
+    "isUnlimited": false
+  },
+  "externalEvidence": {
+    "goplus": {},
+    "birdeye": {},
+    "rootdata": {}
+  },
   "policyProfile": "balanced"
 }
 ```
@@ -192,7 +223,44 @@ Supported values:
 
 - `chain`: `xlayer`, `solana`
 - `operation`: `buy`, `sell`, `swap`, `approval`
-- `policyProfile`: `balanced`
+- `policyProfile`: `balanced`, `strict`, `competition`, `degen-small-size`
+
+## External Evidence
+
+Agent Risk Firewall does not call GoPlus, Birdeye, or RootData directly. Strategy and analytics plugins can pass their findings through `externalEvidence`:
+
+```json
+{
+  "externalEvidence": {
+    "goplus": {
+      "riskLevel": "HIGH",
+      "is_honeypot": "0",
+      "buy_tax": "10",
+      "sell_tax": "10"
+    },
+    "birdeye": {
+      "liquidityUsd": 12000,
+      "top10HolderPercent": 72
+    },
+    "rootdata": {
+      "riskLevel": "LOW",
+      "tags": []
+    }
+  }
+}
+```
+
+## Strategy Plugin Compatibility
+
+Use this plugin as middleware between alpha generation and execution:
+
+```text
+xlayer-alpha-hunter -> unsigned swap -> agent-risk-firewall -> execute only if allowed
+smart-tradex -> quote/tx context -> agent-risk-firewall -> warn/block gate
+otto-alpha-sniper -> external evidence + tx context -> agent-risk-firewall -> final confirmation
+```
+
+The strategy plugin owns signal generation. Agent Risk Firewall owns the pre-sign risk decision.
 
 ## Testing
 
@@ -207,7 +275,7 @@ python -m pytest .\skills\agent-risk-firewall\tests -q -p no:cacheprovider
 Expected result:
 
 ```text
-18 passed
+28 passed
 ```
 
 Validate the plugin package for OKX Plugin Store:
@@ -232,6 +300,10 @@ The test suite includes golden fixtures for:
 - Slippage thresholds
 - Address and chain mismatch
 - Scan timeout/unavailable
+- Policy profiles
+- External GoPlus/Birdeye/RootData evidence
+- Approval-specific risk checks
+- Audit trail determinism
 
 ## Live Dry-Run
 

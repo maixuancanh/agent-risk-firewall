@@ -1,7 +1,7 @@
 ---
 name: agent-risk-firewall
 description: "Pre-trade risk firewall for Agentic Wallet swaps on X Layer and Solana"
-version: "1.0.0"
+version: "1.1.0"
 author: "Agent Risk Firewall Contributors"
 tags:
   - security
@@ -18,7 +18,7 @@ tags:
 
 Agent Risk Firewall is a pre-trade guardian for Agentic Wallet workflows. Use it before any X Layer or Solana swap, token buy, token sell, or approval when an agent has quote or transaction context and is about to ask the user to sign.
 
-The firewall does not sign transactions, broadcast transactions, revoke approvals, or execute swaps. It normalizes the proposed operation, calls OKX OnchainOS security and simulation commands when available, applies a deterministic balanced policy, and returns `allow`, `warn`, or `block`.
+The firewall does not sign transactions, broadcast transactions, revoke approvals, or execute swaps. It normalizes the proposed operation, calls OKX OnchainOS security and simulation commands when available, accepts optional external evidence from other plugins, applies a deterministic policy profile, and returns `allow`, `warn`, or `block`.
 
 ## Pre-flight Checks
 
@@ -29,7 +29,7 @@ Before using this skill, ensure:
 3. For live OKX checks, install OnchainOS skills with `npx skills add okx/onchainos-skills`.
 4. For production usage, configure personal OKX credentials through the OnchainOS environment variables. Never commit `.env` files or API keys.
 
-If `onchainos` is not installed or a scan fails, treat that as incomplete verification. The firewall will return at least `warn`; do not treat unavailable scan data as safe.
+If `onchainos` is not installed or a scan fails, treat that as incomplete verification. In `balanced`, `competition`, and `degen-small-size`, unavailable scan data returns at least `warn`. In `strict`, unavailable scan data returns `block`.
 
 ## Commands
 
@@ -41,7 +41,7 @@ agent-risk-firewall check --input request.json --format json
 
 **When to use**: Run this before any X Layer or Solana swap, token buy, token sell, or approval when the agent has quote or transaction context and is about to request a signature.
 
-**Output**: JSON containing `verdict`, `riskScore`, `requiresUserConfirmation`, `reasons`, normalized `evidence`, and `safeNextStep`.
+**Output**: JSON containing `verdict`, `riskScore`, `requiresUserConfirmation`, `reasons`, normalized `evidence`, `audit`, and `safeNextStep`.
 
 **Example**:
 
@@ -70,6 +70,7 @@ Required input shape:
   },
   "amountIn": "100",
   "amountInUsd": 100,
+  "walletValueUsd": 1000,
   "quote": {
     "expectedOut": "12345",
     "slippagePct": 1,
@@ -82,6 +83,16 @@ Required input shape:
     "to": "0x0000000000000000000000000000000000000003",
     "data": "0x",
     "value": "0"
+  },
+  "approval": {
+    "spender": "0x0000000000000000000000000000000000000004",
+    "spenderType": "contract",
+    "isUnlimited": false
+  },
+  "externalEvidence": {
+    "goplus": {},
+    "birdeye": {},
+    "rootdata": {}
   },
   "policyProfile": "balanced"
 }
@@ -102,15 +113,70 @@ Output:
     }
   ],
   "evidence": {},
+  "audit": {
+    "decisionId": "arf_0123456789abcdef",
+    "policyProfile": "balanced",
+    "policyVersion": "1.1.0",
+    "evidenceHash": "64-character-sha256"
+  },
   "safeNextStep": "Show the warning reasons and ask the user for explicit confirmation before signing."
 }
 ```
 
-Agent behavior:
+Agent behavior contract:
 
-- `allow`: continue the signing or broadcast flow if the user already requested it.
-- `warn`: show the warning reasons and require explicit user confirmation before continuing.
-- `block`: do not request a signature, do not broadcast, and recommend canceling or revising the operation.
+- `allow`: the agent may continue the normal signing or broadcast flow only if the user already requested execution.
+- `warn`: the agent must show the warning reasons, quote details, and `audit.decisionId`, then require explicit user confirmation before continuing.
+- `block`: the agent must stop. It must not ask the user to sign, must not broadcast, and must recommend canceling or revising the operation.
+
+## Policy Profiles
+
+Use `policyProfile` to tune the firewall for the agent workflow:
+
+| Profile | Use case | Key behavior |
+|---|---|---|
+| `balanced` | Default retail agentic trading guardrail | Blocks critical signals, warns on elevated slippage/price impact, allows normal safe trades. |
+| `strict` | High-safety mode for larger or less trusted workflows | Blocks unavailable scans, token `HIGH`, EOA spenders, and tighter slippage/price impact thresholds. |
+| `competition` | OKX Agentic Trading style workflows | Uses tighter caps and blocks stablecoin/native-only pairs so agents focus on real token trades. |
+| `degen-small-size` | Small-size meme/token exploration | Allows higher slippage/price impact but caps trade size at 25 USD and 3% wallet exposure. |
+
+## External Evidence
+
+Other plugins can pass optional evidence into `externalEvidence` without this firewall calling third-party APIs directly:
+
+- `goplus`: token/address security fields such as `riskLevel`, `is_honeypot`, `is_blacklisted`, `buy_tax`, `sell_tax`.
+- `birdeye`: liquidity and holder distribution fields such as `liquidityUsd`, `top10HolderPercent`.
+- `rootdata`: project intelligence fields such as `riskLevel`, `tags`, `labels`, or `riskTags`.
+
+Critical external evidence can upgrade a result to `block`; high or incomplete evidence usually upgrades to `warn`.
+
+## Approval-Specific Checks
+
+For `operation: "approval"`, include an `approval` object when available:
+
+```json
+{
+  "spender": "0x0000000000000000000000000000000000000004",
+  "spenderType": "eoa",
+  "isUnlimited": true,
+  "allowedSpenders": [],
+  "blockedSpenders": []
+}
+```
+
+The firewall checks for missing spender, spender address mismatch, explicitly blocked spender, spender not in a provided allowlist, EOA spender, and unlimited allowance.
+
+## Compatibility Examples
+
+Trading strategy plugins can use this firewall as a pre-sign middleware:
+
+```text
+xlayer-alpha-hunter -> onchainos swap swap -> agent-risk-firewall check -> user confirmation or cancel -> onchainos swap execute
+smart-tradex -> quote/unsigned tx -> agent-risk-firewall check -> allow/warn/block gate
+otto-alpha-sniper -> externalEvidence + tx context -> agent-risk-firewall check -> final confirmation
+```
+
+The strategy plugin keeps its alpha logic. Agent Risk Firewall owns the pre-sign risk gate.
 
 ### Show the active policy
 
@@ -126,6 +192,9 @@ agent-risk-firewall policy --profile balanced
 
 ```bash
 agent-risk-firewall policy --profile balanced
+agent-risk-firewall policy --profile strict
+agent-risk-firewall policy --profile competition
+agent-risk-firewall policy --profile degen-small-size
 ```
 
 ### Run a local self-test

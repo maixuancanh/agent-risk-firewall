@@ -14,7 +14,7 @@ The plugin returns a deterministic JSON verdict:
 
 Agent Risk Firewall does not sign transactions, broadcast transactions, execute swaps, revoke approvals, or handle private keys. It only evaluates intent, quote, token context, and optional transaction context.
 
-If OKX OnchainOS scan or simulation data is unavailable, the plugin treats verification as incomplete and returns at least `warn`.
+If OKX OnchainOS scan or simulation data is unavailable, the plugin treats verification as incomplete. In `balanced`, `competition`, and `degen-small-size`, incomplete verification returns at least `warn`; in `strict`, it returns `block`.
 
 ## What It Checks
 
@@ -25,12 +25,18 @@ If OKX OnchainOS scan or simulation data is unavailable, the plugin treats verif
 - Slippage and price impact thresholds
 - Per-trade and wallet-exposure caps
 - Low liquidity when liquidity data is available
+- Optional external evidence from GoPlus, Birdeye, and RootData
+- Approval spender and unlimited allowance risk
+- Audit trail fields: `decisionId`, `policyVersion`, `evidenceHash`
 
 ## Commands
 
 ```bash
 agent-risk-firewall check --input request.json --format json
 agent-risk-firewall policy --profile balanced
+agent-risk-firewall policy --profile strict
+agent-risk-firewall policy --profile competition
+agent-risk-firewall policy --profile degen-small-size
 agent-risk-firewall self-test
 ```
 
@@ -68,6 +74,16 @@ Use `--input -` to read JSON from stdin.
     "data": "0x",
     "value": "0"
   },
+  "approval": {
+    "spender": "0x0000000000000000000000000000000000000004",
+    "spenderType": "contract",
+    "isUnlimited": false
+  },
+  "externalEvidence": {
+    "goplus": {},
+    "birdeye": {},
+    "rootdata": {}
+  },
   "policyProfile": "balanced"
 }
 ```
@@ -76,7 +92,16 @@ Supported values:
 
 - `chain`: `xlayer`, `solana`
 - `operation`: `buy`, `sell`, `swap`, `approval`
-- `policyProfile`: `balanced`
+- `policyProfile`: `balanced`, `strict`, `competition`, `degen-small-size`
+
+## Policy Profiles
+
+| Profile | Use case | Key behavior |
+| --- | --- | --- |
+| `balanced` | Default retail agentic trading guardrail | Blocks critical risk and warns on elevated risk. |
+| `strict` | High-safety mode | Blocks unavailable scans, token `HIGH`, EOA spenders, and tighter slippage/price-impact limits. |
+| `competition` | OKX Agentic Trading style workflows | Tighter caps and blocks stablecoin/native-only pairs. |
+| `degen-small-size` | Small meme-token experiments | Higher slippage tolerance with a hard 25 USD trade cap. |
 
 ## Balanced Policy
 
@@ -109,7 +134,7 @@ python -m pytest .\skills\agent-risk-firewall\tests -q -p no:cacheprovider
 Expected results:
 
 ```text
-18 passed
+28 passed
 Plugin 'agent-risk-firewall' passed all checks
 ```
 
@@ -122,6 +147,14 @@ Plugin 'agent-risk-firewall' passed all checks
 4. If allow, continue only if the user requested execution.
 5. If warn, show reasons and require explicit confirmation.
 6. If block, cancel and do not ask the user to sign.
+```
+
+Compatible strategy pattern:
+
+```text
+xlayer-alpha-hunter -> unsigned swap -> agent-risk-firewall -> execute only if allowed
+smart-tradex -> quote/tx context -> agent-risk-firewall -> warn/block gate
+otto-alpha-sniper -> external evidence + tx context -> agent-risk-firewall -> final confirmation
 ```
 
 ## Disclaimer

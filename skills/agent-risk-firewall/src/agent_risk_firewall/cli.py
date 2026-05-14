@@ -35,7 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--format", default="json", choices=["json"], help="Output format.")
 
     policy = subparsers.add_parser("policy", help="Print the active policy.")
-    policy.add_argument("--profile", default="balanced", help="Policy profile. MVP supports balanced.")
+    policy.add_argument(
+        "--profile",
+        default="balanced",
+        help="Policy profile: balanced, strict, competition, or degen-small-size.",
+    )
 
     subparsers.add_parser("self-test", help="Run local policy checks without live assets.")
     return parser

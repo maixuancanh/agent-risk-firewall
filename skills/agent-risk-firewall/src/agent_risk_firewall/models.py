@@ -120,6 +120,8 @@ def validate_check_input(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[
 
     quote = payload.get("quote") if isinstance(payload.get("quote"), dict) else {}
     tx = payload.get("tx") if isinstance(payload.get("tx"), dict) else {}
+    approval = payload.get("approval") if isinstance(payload.get("approval"), dict) else {}
+    external_evidence = payload.get("externalEvidence") if isinstance(payload.get("externalEvidence"), dict) else {}
 
     context: Dict[str, Any] = {
         "chain": chain,
@@ -132,6 +134,8 @@ def validate_check_input(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[
         "walletValueUsd": optional_decimal(payload.get("walletValueUsd")),
         "quote": quote,
         "tx": tx,
+        "approval": approval,
+        "externalEvidence": external_evidence,
         "policyProfile": str(payload.get("policyProfile") or "balanced").strip().lower(),
     }
 
@@ -180,6 +184,17 @@ def validate_check_input(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[
                 "severity": "block",
                 "score": 95,
                 "message": "Transaction recipient address format does not match X Layer.",
+            }
+        )
+
+    spender = approval.get("spender") or tx.get("spender")
+    if spender and chain == "xlayer" and not address_matches_chain(chain, spender):
+        findings.append(
+            {
+                "code": "ADDRESS_CHAIN_MISMATCH",
+                "severity": "block",
+                "score": 95,
+                "message": "Approval spender address format does not match X Layer.",
             }
         )
 
