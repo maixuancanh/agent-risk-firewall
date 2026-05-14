@@ -22,7 +22,7 @@ components:
 build:
   lang: python
   source_repo: maixuancanh/agent-risk-firewall
-  source_commit: "55c08e26a218328e450c9bf6b997c73d74353048"
+  source_commit: "c31fcb018d76b32f2e18443d8fa003bb1e11adca"
   binary_name: agent-risk-firewall
   main: "src/agent_risk_firewall/cli.py"
 
