@@ -74,6 +74,7 @@ def normalize_request(payload: Dict[str, Any]) -> Dict[str, Any]:
         "riskProfile": risk_profile,
         "plugins": payload.get("plugins") if isinstance(payload.get("plugins"), dict) else {},
         "constraints": payload.get("constraints") if isinstance(payload.get("constraints"), dict) else {},
+        "competition": payload.get("competition") if isinstance(payload.get("competition"), dict) else {},
         "externalEvidencePlugins": _normalize_list(payload.get("externalEvidencePlugins")),
     }
 

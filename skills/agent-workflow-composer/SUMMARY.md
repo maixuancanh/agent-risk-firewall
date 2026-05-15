@@ -9,6 +9,7 @@ Core operations:
 - Build a guarded workflow plan from a natural-language intent request
 - Validate that risk checks and user confirmation happen before execution
 - Generate templates for guarded swaps, competition trades, and approval reviews
+- Add Competition Mode Enhancer steps for OKX competition discovery, detail, user-status, and firewall competition context
 - Keep execution disabled by default through `dry-run` mode
 
 Tags: `workflow` `agentic-wallet` `composer` `security` `risk` `trading`
@@ -21,6 +22,7 @@ Tags: `workflow` `agentic-wallet` `composer` `security` `risk` `trading`
   - `okx-dex-swap`
   - `okx-dex-token`
   - `agent-risk-firewall`
+  - `okx-growth-competition` for competition-trade workflows
   - optional external evidence plugins such as `goplus-security`, `birdeye-plugin`, or `rootdata-crypto-plugin`
 
 ## Quick Start

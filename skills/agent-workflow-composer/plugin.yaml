@@ -1,6 +1,6 @@
 schema_version: 1
 name: agent-workflow-composer
-version: "1.0.0"
+version: "1.1.0"
 description: "Compose safe multi-plugin Agentic Wallet workflows before execution"
 author:
   name: "Agent Workflow Composer Contributors"

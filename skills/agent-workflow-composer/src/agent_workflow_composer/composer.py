@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from .models import normalize_request
 
 
-COMPOSER_VERSION = "1.0.0"
+COMPOSER_VERSION = "1.1.0"
 
 
 def build_plan(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -27,6 +27,8 @@ def build_plan(payload: Dict[str, Any]) -> Dict[str, Any]:
         "warnings": _warnings(request),
         "runbook": _runbook(request),
     }
+    if request.get("competition"):
+        plan["competition"] = request["competition"]
     validation = validate_plan(plan)
     plan["validation"] = validation
     return plan
@@ -66,10 +68,26 @@ def template(name: str) -> Dict[str, Any]:
             "executionMode": "dry-run",
             "riskProfile": "competition",
             "plugins": {
+                "competition": "okx-growth-competition",
                 "signal": "xlayer-alpha-hunter",
                 "quote": "okx-dex-swap",
                 "risk": "agent-risk-firewall",
                 "wallet": "okx-agentic-wallet",
+            },
+            "competition": {
+                "activityName": "Selected Agentic Trading competition",
+                "active": True,
+                "joined": True,
+                "supportedChains": ["xlayer", "solana"],
+                "eligibleTokenTradeRequired": True,
+                "disallowedPairClasses": [
+                    "stable-stable",
+                    "stable-native",
+                    "stable-wrapped-native",
+                    "native-native",
+                    "native-wrapped-native",
+                    "wrapped-native-wrapped-native",
+                ],
             },
             "externalEvidencePlugins": ["goplus-security", "birdeye-plugin"],
         }
@@ -106,16 +124,27 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         errors.append(_issue("MISSING_FIREWALL", "Workflow plan must include agent-risk-firewall before execution."))
     if "agent-risk-firewall" not in _plugin_names(plan.get("requiredPlugins")):
         errors.append(_issue("MISSING_FIREWALL_PLUGIN", "agent-risk-firewall must be a required plugin."))
+    if plan.get("workflowType") == "competition-trade":
+        if plan.get("riskProfile") != "competition":
+            errors.append(_issue("COMPETITION_PROFILE_REQUIRED", "Competition trade plans must use the competition risk profile."))
+        if "competition_context" not in step_ids:
+            errors.append(_issue("MISSING_COMPETITION_CONTEXT", "Competition trade plans must build competitionContext before the firewall."))
+        if "okx-growth-competition" not in _plugin_names(plan.get("requiredPlugins")):
+            errors.append(_issue("MISSING_COMPETITION_PLUGIN", "Competition trade plans must require okx-growth-competition."))
 
     execute_positions = _positions(steps, lambda step: _is_execution_step(step))
     firewall_positions = _positions(steps, lambda step: step.get("id") == "risk_firewall_check")
     confirmation_positions = _positions(steps, lambda step: step.get("id") == "user_confirmation_gate")
+    competition_positions = _positions(steps, lambda step: step.get("id") == "competition_context")
 
     for position in execute_positions:
         if not firewall_positions or min(firewall_positions) > position:
             errors.append(_issue("EXECUTE_BEFORE_FIREWALL", "Execution step appears before risk firewall."))
         if not confirmation_positions or min(confirmation_positions) > position:
             errors.append(_issue("EXECUTE_BEFORE_CONFIRMATION", "Execution step appears before user confirmation gate."))
+    for position in firewall_positions:
+        if plan.get("workflowType") == "competition-trade" and (not competition_positions or min(competition_positions) > position):
+            errors.append(_issue("FIREWALL_BEFORE_COMPETITION_CONTEXT", "Firewall appears before competitionContext."))
 
     for step in steps:
         command = str(step.get("command") or step.get("agentInstruction") or "")
@@ -156,6 +185,9 @@ def _build_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
         },
     ]
 
+    if request["workflowType"] == "competition-trade":
+        steps.extend(_competition_steps(request))
+
     signal_plugin = _plugin(request, "signal", None)
     if signal_plugin:
         steps.append(
@@ -186,6 +218,50 @@ def _build_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
         }
     )
     return steps
+
+
+def _competition_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
+    competition_plugin = _plugin(request, "competition", "okx-growth-competition")
+    return [
+        {
+            "id": "competition_discovery",
+            "title": "Discover active Agentic Trading competitions",
+            "plugin": competition_plugin,
+            "mode": "read-only",
+            "command": "onchainos competition list --status 0",
+            "produces": ["availableCompetitions"],
+            "mustNot": ["render internal activityId values to the user"],
+        },
+        {
+            "id": "competition_detail",
+            "title": "Fetch selected competition rules",
+            "plugin": competition_plugin,
+            "mode": "read-only",
+            "command": "onchainos competition detail --activity-id <activityId>",
+            "requires": ["selectedCompetition"],
+            "produces": ["competitionDetail"],
+            "mustNot": ["render internal activityId values to the user"],
+        },
+        {
+            "id": "competition_user_status",
+            "title": "Check wallet registration for selected competition",
+            "plugin": competition_plugin,
+            "mode": "read-only",
+            "command": "onchainos competition user-status --activity-id <activityId> --evm-wallet <evmWallet> --sol-wallet <solWallet>",
+            "requires": ["walletStatus", "competitionDetail"],
+            "produces": ["competitionUserStatus"],
+            "mustNot": ["join automatically unless the user explicitly asks to register"],
+        },
+        {
+            "id": "competition_context",
+            "title": "Build firewall competition context",
+            "plugin": "agent-workflow-composer",
+            "mode": "local",
+            "requires": ["competitionDetail", "competitionUserStatus"],
+            "produces": ["competitionContext"],
+            "agentInstruction": "Map competition detail and user-status into firewall input: active, joined, supportedChains, primaryChain, min thresholds, rankMetric, and eligibleTokenTradeRequired. Until backend exposes full multi-chain data, treat Solana plus the primary chain as supported.",
+        },
+    ]
 
 
 def _swap_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -270,6 +346,9 @@ def _external_evidence_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _firewall_and_gate_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
+    required_context = ["quote or approval", "tx or unsignedTransaction", "externalEvidence optional"]
+    if request["workflowType"] == "competition-trade":
+        required_context.append("competitionContext")
     return [
         {
             "id": "risk_firewall_check",
@@ -277,7 +356,7 @@ def _firewall_and_gate_steps(request: Dict[str, Any]) -> List[Dict[str, Any]]:
             "plugin": _plugin(request, "risk", "agent-risk-firewall"),
             "mode": "risk-gate",
             "command": "agent-risk-firewall check --input <workflowContext.json> --format json",
-            "requires": ["quote or approval", "tx or unsignedTransaction", "externalEvidence optional"],
+            "requires": required_context,
             "produces": ["riskVerdict", "riskScore", "riskReasons", "firewallAudit"],
         },
         {
@@ -299,6 +378,8 @@ def _required_plugins(request: Dict[str, Any]) -> List[Dict[str, str]]:
     ]
     if request["workflowType"] in ("swap", "competition-trade", "custom"):
         names.append(_plugin(request, "quote", "okx-dex-swap"))
+    if request["workflowType"] == "competition-trade":
+        names.append(_plugin(request, "competition", "okx-growth-competition"))
     if request["workflowType"] == "approval":
         names.append(_plugin(request, "wallet", "okx-agentic-wallet"))
     return [{"name": name, "purpose": _plugin_purpose(name)} for name in _unique(names) if name]
@@ -321,6 +402,11 @@ def _constraints(request: Dict[str, Any]) -> Dict[str, Any]:
     constraints.setdefault("requireFirewallBeforeExecution", True)
     constraints.setdefault("requireExplicitConfirmationOnWarn", True)
     constraints.setdefault("defaultNoExecution", request["executionMode"] == "dry-run")
+    if request["workflowType"] == "competition-trade":
+        constraints.setdefault("requireCompetitionContext", True)
+        constraints.setdefault("eligibleTokenTradeRequired", True)
+        constraints.setdefault("disallowStableNativeOnlyPair", True)
+        constraints.setdefault("hideInternalCompetitionIds", True)
     if request.get("amountUsd") is not None:
         constraints.setdefault("requestedAmountUsd", str(request["amountUsd"]))
     return constraints
@@ -346,6 +432,8 @@ def _warnings(request: Dict[str, Any]) -> List[Dict[str, str]]:
         warnings.append(_issue("LIVE_EXECUTION_ENABLED", "Plan contains a guarded execution step; user confirmation is mandatory."))
     if not request.get("externalEvidencePlugins"):
         warnings.append(_issue("NO_EXTERNAL_EVIDENCE", "No external evidence plugins were requested; firewall will rely on OKX evidence and input context."))
+    if request["workflowType"] == "competition-trade" and not request.get("competition"):
+        warnings.append(_issue("COMPETITION_TEMPLATE_CONTEXT_EMPTY", "Competition request has no seed context; the plan must fetch detail and user-status before firewall."))
     return warnings
 
 
@@ -359,6 +447,10 @@ def _runbook(request: Dict[str, Any]) -> List[str]:
     ]
     if request["executionMode"] == "dry-run":
         runbook.append("This plan is dry-run only; do not include execution commands.")
+    if request["workflowType"] == "competition-trade":
+        runbook.append("Fetch competition detail and user-status before quote or firewall.")
+        runbook.append("Never show internal activityId values in user-facing messages.")
+        runbook.append("Build competitionContext for agent-risk-firewall and use policyProfile=competition.")
     return runbook
 
 
@@ -384,6 +476,7 @@ def _plugin_purpose(name: str) -> str:
         "okx-dex-swap": "quote and unsigned swap transaction builder",
         "okx-dex-token": "token address and token data resolution",
         "agent-risk-firewall": "pre-sign risk verdict and audit trail",
+        "okx-growth-competition": "competition discovery, detail, registration status, ranking, and claim workflows",
         "goplus-security": "external token/address security evidence",
         "birdeye-plugin": "external market, liquidity, and holder evidence",
         "rootdata-crypto-plugin": "external project and funding intelligence",

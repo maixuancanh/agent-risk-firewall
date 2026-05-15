@@ -1,7 +1,7 @@
 ---
 name: agent-workflow-composer
 description: "Compose safe multi-plugin Agentic Wallet workflows before execution"
-version: "1.0.0"
+version: "1.1.0"
 author: "Agent Workflow Composer Contributors"
 tags:
   - workflow
@@ -28,6 +28,7 @@ Use this plugin when the user asks to:
 - Plan a safe Agentic Wallet trading workflow before execution.
 - Connect a strategy plugin to `agent-risk-firewall`.
 - Verify that a workflow has risk checks before execution.
+- Plan an OKX Agentic Trading competition flow with competition preflight before the firewall.
 - Produce a dry-run plan for no-tech UI or Agentic Wallet Workbench.
 
 Do not use this plugin as a trading strategy. It does not generate alpha signals or choose tokens by itself.
@@ -107,8 +108,25 @@ agent-workflow-composer self-test
 |---|---|
 | `swap` | Compose wallet preflight, token resolution, quote, unsigned tx, firewall, and confirmation. |
 | `approval` | Compose approval context collection, firewall, and confirmation. |
-| `competition-trade` | Compose a competition-style guarded trade plan with the `competition` risk profile. |
+| `competition-trade` | Compose a competition-style guarded trade plan with OKX competition preflight and the `competition` risk profile. |
 | `custom` | Compose the default guarded swap skeleton for a custom agent workflow. |
+
+## Competition Mode Enhancer
+
+For `workflowType: "competition-trade"`, generated plans include these steps before quote execution or firewall:
+
+1. `competition_discovery`: `onchainos competition list --status 0`
+2. `competition_detail`: `onchainos competition detail --activity-id <activityId>`
+3. `competition_user_status`: `onchainos competition user-status --activity-id <activityId> --evm-wallet <evmWallet> --sol-wallet <solWallet>`
+4. `competition_context`: normalize active status, join status, supported chains, thresholds, rank metric, and eligible pair rules for `agent-risk-firewall`
+
+Validation fails when a competition trade plan:
+
+- does not use `riskProfile: "competition"`;
+- does not require `okx-growth-competition`;
+- runs `risk_firewall_check` before `competition_context`.
+
+Internal competition IDs are allowed in tool context for chaining OnchainOS commands, but must not be shown in user-facing messages.
 
 ## Execution Modes
 
@@ -126,6 +144,7 @@ Every generated plan follows these rules:
 - `onchainos wallet status` before any wallet-dependent step.
 - `onchainos swap quote` before unsigned transaction building.
 - `onchainos swap swap` for unsigned transaction context.
+- `onchainos competition detail` and `onchainos competition user-status` before competition-mode firewall checks.
 - `agent-risk-firewall check` before any execution step.
 - user confirmation gate after the firewall.
 - no `--force` in generated commands.

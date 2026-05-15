@@ -76,7 +76,40 @@ def test_template_competition_trade_uses_competition_profile():
     payload = template("competition-trade")
     assert payload["workflowType"] == "competition-trade"
     assert payload["riskProfile"] == "competition"
+    assert payload["plugins"]["competition"] == "okx-growth-competition"
+    assert payload["competition"]["eligibleTokenTradeRequired"] is True
     assert "xlayer-alpha-hunter" in payload["plugins"].values()
+
+
+def test_competition_plan_has_preflight_before_firewall():
+    plan = build_plan(template("competition-trade"))
+    step_ids = [step["id"] for step in plan["steps"]]
+
+    assert plan["validation"]["ok"] is True
+    assert "okx-growth-competition" in [plugin["name"] for plugin in plan["requiredPlugins"]]
+    assert step_ids.index("competition_discovery") < step_ids.index("competition_context")
+    assert step_ids.index("competition_context") < step_ids.index("risk_firewall_check")
+    assert "competitionContext" in plan["steps"][step_ids.index("risk_firewall_check")]["requires"]
+
+
+def test_validate_rejects_competition_plan_without_context_step():
+    plan = build_plan(template("competition-trade"))
+    plan["steps"] = [step for step in plan["steps"] if step["id"] != "competition_context"]
+
+    result = validate_plan(plan)
+
+    assert result["ok"] is False
+    assert any(error["code"] == "MISSING_COMPETITION_CONTEXT" for error in result["errors"])
+
+
+def test_validate_rejects_competition_plan_without_competition_profile():
+    plan = build_plan(template("competition-trade"))
+    plan["riskProfile"] = "balanced"
+
+    result = validate_plan(plan)
+
+    assert result["ok"] is False
+    assert any(error["code"] == "COMPETITION_PROFILE_REQUIRED" for error in result["errors"])
 
 
 def test_validate_payload_accepts_request():
