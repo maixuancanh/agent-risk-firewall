@@ -130,16 +130,16 @@ skills/agent-risk-firewall/
 From the plugin directory:
 
 ```powershell
-cd D:\pluginokx\skills\agent-risk-firewall
+cd .\skills\agent-risk-firewall
 python -m pip install -e .
 agent-risk-firewall self-test
 ```
 
-Or run directly from source without installing:
+Or run directly from the repository root without installing:
 
 ```powershell
-cd D:\pluginokx
-$env:PYTHONPATH = "D:\pluginokx\skills\agent-risk-firewall\src"
+cd <repo-root>
+$env:PYTHONPATH = ".\skills\agent-risk-firewall\src"
 python -m agent_risk_firewall self-test
 ```
 
@@ -267,7 +267,7 @@ The strategy plugin owns signal generation. Agent Risk Firewall owns the pre-sig
 Run the full test suite:
 
 ```powershell
-cd D:\pluginokx
+cd <repo-root>
 $env:PYTHONDONTWRITEBYTECODE = "1"
 python -m pytest .\skills\agent-risk-firewall\tests -q -p no:cacheprovider
 ```
@@ -275,7 +275,7 @@ python -m pytest .\skills\agent-risk-firewall\tests -q -p no:cacheprovider
 Expected result:
 
 ```text
-28 passed
+34 passed
 ```
 
 Validate the plugin package for OKX Plugin Store:
